@@ -1,0 +1,87 @@
+// Title: AMG8833 Thermal Sensor Display
+//---------------------------------
+// Author: Geovani Palomec
+// Date: April 30, 2026
+// Version: 1
+//   V1: Read AMG8833 thermal array over I2C and display heat pattern
+//       on SSD1306 I2C OLED.
+// -----------------------------------------------------------
+// Setup:   Arduino Uno with ATmega328P-PU
+// IDE:     Arduino IDE 2.3.8
+// File Dependencies / Libraries:
+//       Wire.h
+//       Adafruit_AMG88xx.h
+//       Adafruit_GFX.h
+//       Adafruit_SSD1306.h
+// ------------------------------------------------------------
+// Purpose:
+//   Interface an AMG8833 8x8 infrared thermal array sensor with an
+//   Arduino Uno using I2C. Read 64 temperature pixels, convert readings
+//   from Celsius to Fahrenheit, and display a simplified thermal image
+//   on an SSD1306 OLED display.
+//---------------------------------------------------------------
+// Inputs:
+//   A4 (SDA): I2C data line for AMG8833 and OLED
+//   A5 (SCL): I2C clock line for AMG8833 and OLED
+// -----------------------------------------------------------
+// Outputs:
+//   SSD1306 OLED: Displays 8x8 thermal heat pattern
+//   Serial Monitor: Optional temperature/debug output
+//-------------------------------------------------------------
+#include <Wire.h>
+#include <Adafruit_AMG88xx.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+Adafruit_AMG88xx amg;
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+float pixels[64];
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!amg.begin()) {
+    Serial.println("AMG8833 not found");
+    while (1);
+  }
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found");
+    while (1);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.display();
+}
+
+void loop() {
+  amg.readPixels(pixels);
+
+  display.clearDisplay();
+
+  for (int row = 0; row < 8; row++) {
+    for (int col = 0; col < 8; col++) {
+      int i = row * 8 + col;
+      float tempF = pixels[i] * 9.0 / 5.0 + 32.0;
+
+      int size;
+      if (tempF < 75) size = 2;
+      else if (tempF < 85) size = 4;
+      else if (tempF < 95) size = 6;
+      else size = 8;
+
+      int x = col * 8;
+      int y = row * 8;
+
+      display.fillRect(x, y, size, size, WHITE);
+    }
+  }
+
+  display.display();
+  delay(300);
+}
