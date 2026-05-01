@@ -1,0 +1,140 @@
+//---------------------------------
+// Title: AMG8833 Heat Tracking w/Servo
+//---------------------------------
+// Author: Geovani Palomec
+// Date: April 30, 2026
+// Version: 3
+//   V1: Basic AMG8833 temperature acquisition
+//   V2: Added servo-based thermal tracking using hottest region
+//   V3: Implemented center-of-mass tracking, smoothing, and threshold-based filtering
+// -----------------------------------------------------------
+// Setup:   Arduino Uno with ATmega328P-PU
+// IDE:     Arduino IDE 2.3.8
+// File Dependencies / Libraries:
+//       Wire.h
+//       Adafruit_AMG88xx.h
+// ------------------------------------------------------------
+// Purpose:
+//   Interface an AMG8833 8x8 infrared thermal sensor with an Arduino Uno
+//   to detect and track a high-temperature target (e.g., lighter flame).
+//   The system computes a weighted center of heat distribution and uses
+//   proportional control with smoothing to drive a servo motor, keeping
+//   the thermal target centered in the field of view.
+//---------------------------------------------------------------
+// Inputs:
+//   A4 (SDA): I2C data line for AMG8833
+//   A5 (SCL): I2C clock line for AMG8833
+// -----------------------------------------------------------
+// Outputs:
+//   D9: Servo PWM SG90 signal (pan control)
+//   Serial Monitor: Debug output (heat center, target angle, servo position)
+//---------------------------------------------------------------
+
+#include <Wire.h>
+#include <Adafruit_AMG88xx.h>
+
+#define SERVO_PIN 9
+
+Adafruit_AMG88xx amg;
+float pixels[64];
+
+int servoAngle = 90;
+unsigned long lastPulse = 0;
+
+// ----- tuning -----
+const float MIN_TARGET_C = 45.0;  // only track >45°C
+const float HEAT_DIFF_C = 3.0;
+const float MIN_WEIGHT = 0.5;
+
+const int SERVO_MIN = 0;
+const int SERVO_MAX = 260;
+
+// widen pulse range for more physical travel
+const int PULSE_MIN = 500;
+const int PULSE_MAX = 2500;
+
+// flip if direction is backwards
+const bool INVERT_SERVO = false;
+
+// higher = smoother/slower
+const float ALPHA = 0.25;
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!amg.begin()) {
+    Serial.println("AMG8833 not found");
+    while (1);
+  }
+
+  pinMode(SERVO_PIN, OUTPUT);
+  Serial.println("System ready");
+}
+
+void sendServoPulse() {
+  unsigned long now = micros();
+
+  if (now - lastPulse >= 20000) {
+    lastPulse = now;
+
+    int pulseWidth = map(servoAngle, 0, 180, PULSE_MIN, PULSE_MAX);
+
+    digitalWrite(SERVO_PIN, HIGH);
+    delayMicroseconds(pulseWidth);
+    digitalWrite(SERVO_PIN, LOW);
+  }
+}
+
+void loop() {
+  sendServoPulse();
+
+  amg.readPixels(pixels);
+
+  float sum = 0;
+  for (int i = 0; i < 64; i++) {
+    sum += pixels[i];
+  }
+
+  float avg = sum / 64.0;
+
+  float weightedSum = 0;
+  float totalWeight = 0;
+
+  for (int i = 0; i < 64; i++) {
+    float diff = pixels[i] - avg;
+
+    if (diff > HEAT_DIFF_C && pixels[i] > MIN_TARGET_C) {
+      int col = i % 8;
+      weightedSum += col * diff;
+      totalWeight += diff;
+    }
+  }
+
+  if (totalWeight > MIN_WEIGHT) {
+    float center = weightedSum / totalWeight;  // 0 to 7
+
+    int targetAngle;
+
+    if (INVERT_SERVO) {
+      targetAngle = map(center * 100, 0, 700, SERVO_MAX, SERVO_MIN);
+    } else {
+      targetAngle = map(center * 100, 0, 700, SERVO_MIN, SERVO_MAX);
+    }
+
+    targetAngle = constrain(targetAngle, SERVO_MIN, SERVO_MAX);
+
+    servoAngle = servoAngle + ALPHA * (targetAngle - servoAngle);
+
+    Serial.print("Center: ");
+    Serial.print(center);
+    Serial.print("  Target: ");
+    Serial.print(targetAngle);
+    Serial.print("  Servo: ");
+    Serial.println(servoAngle);
+  }
+
+
+
+
+  delay(80);
+}
